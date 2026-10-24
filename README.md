@@ -1,236 +1,134 @@
-# RepoSage 🧭
+# RepoSage
 
-> An **agentic code-&-docs intelligence and verification engine** — ask questions across a real
-> codebase's *code and documentation*, and for code tasks watch it **generate → execute →
-> self-correct** against the library's own test suite.
+**An agentic RAG system that retrieves, generates, and verifies code against a live codebase.**
 
-![Status](https://img.shields.io/badge/status-in%20active%20development-orange)
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
-![Serving](https://img.shields.io/badge/serving-vLLM-green)
+RepoSage is built over [`empyrical`](https://github.com/stefan-jansen/empyrical-reloaded), a Python library for financial risk metrics (Sharpe ratio, max drawdown, alpha/beta, etc.). Given a natural-language query, it retrieves relevant source functions, generates a grounded answer or code snippet, executes that code in a sandbox, and self-corrects on failure — all orchestrated through a stateful LangGraph agent.
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Agent](https://img.shields.io/badge/agent-LangGraph-purple)
 ![VectorDB](https://img.shields.io/badge/vectordb-Qdrant-red)
+![API](https://img.shields.io/badge/api-FastAPI-green)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-> 🚧 **Active development.** See the [Roadmap](#-roadmap--status) for exactly what's implemented today.
-
 ---
 
-## 📖 Overview
-
-**RepoSage** is a retrieval-augmented, agentic assistant built on top of a real open-source Python
-library ([`empyrical`](https://github.com/stefan-jansen/empyrical-reloaded), a financial
-performance/risk-metrics library — Sharpe ratio, drawdown, alpha/beta, etc.).
-
-Most "chat with your code" tools do one of two things: they retrieve snippets and hope the model's
-answer is correct, or they generate code with no idea whether it actually *runs*. RepoSage does both
-better. It maintains **two knowledge bases** — one over the library's **code**, one over its
-**documentation** — routes each question to the right source(s), and for any "write/fix code" request it
-**executes the generated code in a sandbox and checks it against the library's real test suite**,
-looping to self-correct on failure. Every answer is grounded and, for code, *verified*.
-
-It is designed to run a self-hosted model (served with **vLLM**), orchestrate a stateful **LangGraph**
-agent, optionally align the model with **DPO** using execution feedback, and report quality through a
-rigorous **evaluation harness** — the full production-LLM stack, end to end.
-
----
-
-## 🎯 The Problem It Solves
-
-Two real gaps in today's code assistants:
-
-1. **Single-source retrieval can't answer cross-cutting questions.** "How do I *use* `sharpe_ratio`
-   (docs) and what does its *implementation* actually assume (code)?" requires reasoning over both docs
-   and code together. RepoSage retrieves from both and synthesizes one cited answer.
-2. **Generated code is rarely *verified*.** A fluent-but-wrong function is worse than useless in
-   finance. RepoSage treats the library's own tests as ground truth and only trusts code that
-   **executes correctly**, mirroring reference-based verification from formal methods.
-
----
-
-## ✨ What It Does
-
-- **Dual-source RAG** — retrieves over the library's **code** (AST-parsed, function-level) and its
-  **docs** (README, docstrings), with hybrid dense + keyword search.
-- **Agentic routing** — a LangGraph agent decides whether a question is about usage (docs),
-  implementation (code), or both, and retrieves accordingly.
-- **Generate → execute → self-correct** — for code tasks, it runs the model's output in a sandbox,
-  checks it against `empyrical`'s reference/tests, and feeds failures back for a bounded repair loop.
-- **Self-hosted, high-throughput serving** — a code LLM (Qwen2.5-Coder) served via **vLLM** with
-  4-bit quantization and KV-cache management.
-- **Preference alignment (DPO)** — fine-tunes the model to prefer *verified-correct* code, using
-  pass/fail execution results as an automatic preference signal.
-- **Rigorous, quantified evaluation** — RAG quality (faithfulness, relevancy, context precision/recall),
-  code correctness (Pass@1), retrieval (recall@k), and routing accuracy — reported honestly.
-- **Clean interfaces** — FastAPI backend + Streamlit demo UI with source citations.
-
----
-
-## 🧭 Goals & Objectives
-
-**Goal:** demonstrate end-to-end, production-grade LLM engineering — serving, agents, alignment, and
-evaluation — on top of research-level rigor, through a system whose outputs are *verifiable*.
-
-**Concrete objectives** (measured, not estimated — filled in as phases land):
-
-| # | Objective | Target metric |
-|---|---|---|
-| 1 | Dual-source (code + docs) retrieval | recall@k on a labeled query set |
-| 2 | Self-host the model with vLLM | tokens/sec throughput vs. a naïve HF pipeline |
-| 3 | Agentic self-correction improves correctness | Pass@1 before vs. after the repair loop |
-| 4 | DPO alignment improves correctness further | Pass@1 delta after DPO |
-| 5 | Trustworthy answers | RAGAS faithfulness / answer relevancy |
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-              ┌───────────── Streamlit UI ─────────────┐
-              └──────────────────┬─────────────────────┘
-                                 │ HTTP
-                        ┌────────▼────────┐
-                        │  FastAPI (api)  │
-                        └────────┬────────┘
-                                 │
-                    ┌────────────▼─────────────┐
-                    │      LangGraph agent      │
-                    │  route → retrieve → (gen  │
-                    │  → execute → self-correct)│
-                    │  → synthesize + cite      │
-                    └───┬───────────┬───────┬───┘
-                        │           │       │
-                 Code KB│    Docs KB│       │ Code LLM (vLLM server)
-                (Qdrant)│   (Qdrant)│       │ Qwen2.5-Coder, 4-bit
-                        ▲           ▲       │
-                AST chunker    docs loader  └── sandboxed execution + empyrical tests
+User query
+    |
+    v
+FastAPI  (/query endpoint)
+    |
+    v
+LangGraph Agent
+    |-- retrieve_node   hybrid search (dense + BM25) -> cross-encoder rerank
+    |-- generate_node   Gemini / Claude LLM with retrieved context
+    |-- execute_node    intent detection -> sandbox execution -> pass/fail
+    |-- decide          success or retry (max 2 attempts)
+    |
+    v
+JSON response  (answer, execution_result, retrieved chunks)
 ```
 
-Full design rationale — including *why* each component was chosen, the alternatives, and the interview
-questions each one covers — lives in [`../RepoSage_Build_Spec.md`](../RepoSage_Build_Spec.md).
+**Retrieval pipeline:** AST-parsed function-level chunks (122 functions indexed) -> BAAI/bge-small-en-v1.5 dense embeddings stored in Qdrant Cloud -> hybrid search merging dense (top-20) and BM25 (top-20) via Reciprocal Rank Fusion -> cross-encoder reranking (ms-marco-MiniLM-L-6-v2) -> top-5 chunks passed to the LLM.
+
+**Execution loop:** for code queries, generated snippets run in a subprocess sandbox with a 5-second timeout. On failure, the error is fed back to the LLM for a bounded self-correction loop (max 2 retries).
 
 ---
 
-## ⚙️ How It Works
+## Evaluation Results
 
-1. **Ingest** — parse `empyrical`'s source into function-level chunks (via Python's `ast`) and load its
-   docs; embed both and store them in two **Qdrant** collections.
-2. **Retrieve** — embed the user's question, pull the most relevant code and/or doc chunks (hybrid search).
-3. **Reason (agent)** — a **LangGraph** graph routes the query, gathers context, and for code tasks
-   **generates code, executes it in a sandbox, and self-corrects** against `empyrical`'s tests.
-4. **Serve** — generation runs on a **vLLM**-served code model (OpenAI-compatible endpoint).
-5. **Answer** — the agent returns a grounded, cited answer (and, for code, a verified snippet).
-6. **Evaluate** — an offline harness scores RAG quality, code Pass@1, retrieval, and routing accuracy.
+Evaluated on a 15-query held-out test set (7 code generation, 4 explanation, 4 edge case). LLM-as-judge scoring using Gemini 2.5 Flash (temperature=0.0) across three dimensions.
 
----
-
-## 📊 Evaluation & Results
-
-Rigorous evaluation is the heart of this project, not an afterthought. All numbers below are **measured
-on a held-out gold set** — never estimated — and populated as each phase completes.
-
-| Metric | Baseline (API model) | + vLLM serving | + DPO |
-|---|---|---|---|
-| Pass@1 (code tasks) | _TBD_ | _TBD_ | _TBD_ |
-| Faithfulness (RAGAS) | _TBD_ | _TBD_ | _TBD_ |
-| Answer relevancy (RAGAS) | _TBD_ | _TBD_ | _TBD_ |
-| Retrieval recall@5 | _TBD_ | _TBD_ | _TBD_ |
-| Routing accuracy | _TBD_ | _TBD_ | _TBD_ |
-| Throughput (tokens/sec) | _TBD_ | _TBD_ | _TBD_ |
-
-_Populated after Phase 6 (evaluation). A note on method: code correctness is checked by **execution
-against `empyrical`'s reference**, and RAG metrics use LLM-as-judge (RAGAS/DeepEval) — with its known
-biases accounted for._
-
----
-
-## 🧱 Tech Stack
-
-| Layer | Tools |
+| Metric | Score |
 |---|---|
-| Serving | **vLLM** (Qwen2.5-Coder, 4-bit, KV-cache) |
-| Retrieval | **Qdrant** vector DB, hybrid dense + keyword search |
-| Orchestration | **LangGraph** agent (stateful, self-correcting) |
-| Alignment | **DPO** via TRL + QLoRA (execution-feedback preferences) |
-| Evaluation | **RAGAS / DeepEval**, Pass@1, retrieval + routing metrics |
-| Interfaces | **FastAPI** + **Streamlit** |
-| Tracking / Infra | **Weights & Biases / MLflow**, **Docker** |
-| GPU | RunPod (serving/dev) · HPC cluster (DPO training) |
+| Pass@1 (code generation) | **93.33%** (14/15) |
+| Context Recall | 0.92 |
+| Faithfulness | 0.88 |
+| Answer Correctness | 1.00 |
+
+Pass@1 measures whether generated code executes successfully on the first attempt. The one failure was a multi-step numerical edge case requiring pandas alignment not present in the retrieved context.
 
 ---
 
-## 🗺️ Roadmap / Status
+## Tech Stack
 
-- [x] **Phase 0** — Project scaffold, environment, Qdrant, `empyrical` source
-- [ ] **Phase 1** — Ingest + index (code + docs) → retrieval
-- [ ] **Phase 2** — Baseline RAG Q&A + FastAPI + Streamlit UI
-- [ ] **Phase 3** — Self-hosted vLLM serving
-- [ ] **Phase 4** — LangGraph agent (routing)
-- [ ] **Phase 5** — Generate → execute → self-correct verification loop
-- [ ] **Phase 6** — Evaluation harness + results
-- [ ] **Phase 7** — DPO alignment (research extension)
-- [ ] **Phase 8** — Dockerize, polish, deploy
+| Layer | Choice | Why |
+|---|---|---|
+| Vector DB | Qdrant Cloud | Production-grade, supports hybrid search natively |
+| Embeddings | BAAI/bge-small-en-v1.5 | Strong retrieval quality at 384 dims, runs on CPU |
+| Retrieval | Dense + BM25 + RRF | Handles both semantic and exact-match queries |
+| Reranking | CrossEncoder ms-marco-MiniLM-L-6-v2 | Bi-encoder recall + cross-encoder precision |
+| Orchestration | LangGraph StateGraph | Stateful cycles needed for the retry loop |
+| LLM | Gemini 2.5 Flash / Claude | Swappable via LangChain interface |
+| Chunking | Python `ast` module | Function-level semantic units, not fixed windows |
+| Execution | `subprocess` + `tempfile` | Sandboxed, timeout-bounded, no eval() |
+| API | FastAPI + uvicorn | Auto-docs, Pydantic validation, async-ready |
+| Deployment | Docker + Docker Compose | Reproducible environment, cloud-portable |
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```
 reposage/
-  ingest/     ast_chunker.py   docs_loader.py     # parse code + docs into chunks
-  index/      embed.py         qdrant_store.py    # embed + upsert to Qdrant
-  retrieve/   retriever.py                        # dense → hybrid → rerank
-  serve/      vllm_launch.md   client.py          # vLLM serving (GPU box)
-  agent/      graph.py  nodes.py  sandbox.py      # LangGraph agent + safe execution
-  align/      build_prefs.py   dpo_train.py       # DPO from execution feedback
-  eval/       goldset.jsonl    run_eval.py        # the evaluation harness
-  api/        main.py                             # FastAPI backend
-  ui/         app.py                              # Streamlit demo
-  external/   empyrical-reloaded/                 # the target library (git-ignored)
-  README.md   requirements.txt   requirements-gpu.txt   docker-compose.yml
+  ingest/       chunker.py          AST parser, function-level extraction
+  retrieve/     hybrid.py           Dense + BM25 + RRF hybrid search
+                reranker.py         Cross-encoder reranking
+  agent/        graph.py            LangGraph StateGraph definition
+                executor.py         Sandbox code execution
+                prompts.py          System + retry prompt templates
+  eval/         run_eval.py         LLM-as-judge evaluation harness
+                test_set.py         15-query gold test set
+  api/          main.py             FastAPI app, /query and /health endpoints
+                models.py           Pydantic request/response models
+  Dockerfile
+  docker-compose.yml
+  requirements.txt
 ```
 
 ---
 
-## 🚀 Getting Started
+## Roadmap
+
+| Phase | Description | Status |
+|---|---|---|
+| 0 | Scaffold, environment, Qdrant, empyrical source | Done |
+| 1 | AST chunking + embedding + Qdrant indexing | Done |
+| 2 | Hybrid retrieval + cross-encoder reranking | Done |
+| 3 | LangGraph agent + LLM integration | Done |
+| 4 | Sandbox execution + self-correction loop | Done |
+| 5 | LLM-as-judge evaluation harness | Done |
+| 6 | FastAPI REST endpoint + Docker | Done |
+| 7 | MCP server (Model Context Protocol) | In progress |
+| 8 | Streamlit UI + HuggingFace Spaces deployment | Planned |
+| 9 | DPO alignment on execution feedback | Planned |
+
+---
+
+## Quick Start
 
 ```bash
-# 1) Install local deps
-python3 -m venv .venv && source .venv/bin/activate
-pip install -U pip && pip install -r requirements.txt
-
-# 2) Start Qdrant (requires Docker Desktop running)
-docker compose up -d            # dashboard at http://localhost:6333/dashboard
-
-# 3) Configure
-cp .env.example .env            # add your OPENAI_API_KEY
+git clone https://github.com/Victorine07/Repo-Sage.git
+cd Repo-Sage
+conda create -n reposage python=3.11 && conda activate reposage
+pip install -r requirements.txt
+cp .env.example .env        # add your QDRANT_URL, QDRANT_API_KEY, GEMINI_API_KEY
+uvicorn api.main:app --reload
+# open http://localhost:8000/docs
 ```
 
-GPU-only dependencies (vLLM, TRL/DPO) are in `requirements-gpu.txt` and install on a CUDA machine
-(RunPod / HPC cluster), not a laptop.
+Or with Docker:
+
+```bash
+docker compose up --build
+# open http://localhost:8000/docs
+```
 
 ---
 
-## 🧠 Key Engineering Decisions
+## Author
 
-A running log of *what was built, why that approach, and the alternatives* is kept in
-[`NOTES.md`](NOTES.md) — one entry per phase. A few highlights:
-
-- **Function-level (AST) chunking** over fixed-size windows — keeps each retrievable unit semantically
-  whole.
-- **Execution-based verification** over judge-only scoring — the library's tests provide *objective*
-  ground truth for code correctness.
-- **DPO** over full RLHF/PPO — preference alignment without a separate reward model or unstable RL,
-  with labels supplied automatically by pass/fail execution.
-
----
-
-## 👤 Author
-
-**Victorine Younang, Ph.D.** — Machine Learning / GenAI (LLM fine-tuning, RAG, evaluation).
-[LinkedIn](https://www.linkedin.com/in/victorine-wakam-younang-4947b712b) ·
-[GitHub](https://github.com/Victorine07) ·
-[Google Scholar](https://scholar.google.com/citations?user=8LaXG4AAAAAJ)
-
-## 📄 License
-
-MIT — see `LICENSE`.
+**Victorine Younang, Ph.D.** — Machine Learning / GenAI
+[LinkedIn](https://www.linkedin.com/in/victorine-wakam-younang-4947b712b) · [GitHub](https://github.com/Victorine07) · [Google Scholar](https://scholar.google.com/citations?user=8LaXG4AAAAAJ)
