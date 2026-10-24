@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+data/*
+!data/.gitkeep
+external/
+wandb/
+.ipynb_checkpoints/
+.DS_Store
+INTERVIEW_PREP.md
+README_original.md
+eval/results.json

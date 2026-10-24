@@ -1,0 +1,14 @@
+# RepoSage — GPU box ONLY (RunPod / HPC Matilda; Linux + CUDA).
+# Do NOT install these on your Mac — vLLM/bitsandbytes need CUDA.
+
+# Phase 3 — serving
+vllm>=0.5
+
+# Phase 7 — post-training (DPO via QLoRA)
+torch>=2.3
+transformers>=4.43
+trl>=0.9
+peft>=0.12
+bitsandbytes>=0.43
+accelerate>=0.33
+datasets>=2.20
