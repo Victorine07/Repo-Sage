@@ -4,13 +4,13 @@
 # Install by phase — don't install everything at once.
 # Each phase section below tells you when to run `pip install` for that group.
 
-# ── Phase 0: infrastructure verification ─────────────────────────────────────
+# ──  ─────────────────────────────────────
 # pip install python-dotenv qdrant-client openai
 python-dotenv>=1.0
 qdrant-client>=1.9
 openai>=1.40
 
-# ── Phase 1: ingest + index ───────────────────────────────────────────────────
+# ──  ───────────────────────────────────────────────────
 # pip install "numpy<2" "torch==2.2.2" "sentence-transformers==2.7.0" tqdm
 # NOTE: on macOS, torch>2.2.2 is not available on PyPI. Pin these three together.
 # numpy<2 must be installed BEFORE torch, or torch's C extensions crash on import.
@@ -20,35 +20,39 @@ sentence-transformers==2.7.0
 numpy<2
 tqdm>=4.66
 
-# ── Phase 2: retrieval ────────────────────────────────────────────────────────
+# ──  ────────────────────────────────────────────────────────
 # pip install rank-bm25
 rank-bm25>=0.2.2
 
-# ── Phase 3: agent + LLM serving ─────────────────────────────────────────────
+# ──  ─────────────────────────────────────────────
 # pip install langchain langchain-google-genai langchain-anthropic langgraph
 langchain>=0.2
 langchain-google-genai>=1.0
 langchain-anthropic>=0.1
 langgraph>=0.2
 
-# ── Phase 4: execute + verify ─────────────────────────────────────────────────
+# ──  ─────────────────────────────────────────────────
 # pip install pandas empyrical-reloaded
 # (sandboxed code execution against empyrical functions)
 pandas>=2.0
 empyrical-reloaded>=0.5.11
 
-# ── Phase 5: evaluation ───────────────────────────────────────────────────────
+# ── ───────────────────────────────────────────────────────
 # NOTE: ragas and deepeval were abandoned — irresolvable conflicts with numpy<2 + torch==2.2.2.
 # Custom LLM-as-judge evaluation is used instead (eval/run_eval.py via Gemini).
 # langchain-google-genai (Phase 3) covers the eval judge — no extra installs needed here.
 
-# ── Phase 6: API + UI ─────────────────────────────────────────────────────────
+# ── ─────────────────────────────────────────────────────────
 # pip install fastapi "uvicorn[standard]" streamlit
 fastapi>=0.111
 uvicorn[standard]>=0.30
 streamlit>=1.36
 
-# ── Parsing (Phase 1+) ────────────────────────────────────────────────────────
+# ──  ───────────────────────────────────────────────────────
+# pip install mcp
+mcp>=1.0
+
+# ──  ────────────────────────────────────────────────────────
 # pip install beautifulsoup4 markdown-it-py
 beautifulsoup4>=4.12
 markdown-it-py>=3.0

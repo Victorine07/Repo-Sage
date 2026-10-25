@@ -10,5 +10,6 @@ wandb/
 .ipynb_checkpoints/
 .DS_Store
 INTERVIEW_PREP.md
+run_mcp_server.sh
 README_original.md
 eval/results.json

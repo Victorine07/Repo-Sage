@@ -9,3 +9,4 @@ eval/results.json
 venv/
 .venv/
 .DS_Store
+requirements-gpu.txt
